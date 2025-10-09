@@ -1,0 +1,19 @@
+run = "npm run dev"
+entrypoint = "index.js"
+
+[env]
+PORT = "5000"
+
+[interpreter]
+command = ["node"]
+
+[unit]
+language = "nodejs"
+
+[[ports]]
+localPort = 5001
+externalPort = 3000
+
+[[ports]]
+localPort = 5173
+externalPort = 80
