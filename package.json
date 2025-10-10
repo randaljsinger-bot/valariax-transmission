@@ -106,6 +106,7 @@
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
     "vite": "^5.4.20"
+    "@types/cors": "^2.8.17"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"
