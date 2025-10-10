@@ -101,6 +101,52 @@ app.post("/tts", async (req, res) => {
     res.status(500).send("tts-failed");
   }
 });
+/** --- STT: audio/webm -> transcript (Deepgram) --- */
+app.post(
+  "/stt",
+  // accept raw audio from the browser
+  express.raw({ type: ["audio/webm", "audio/*"], limit: "25mb" }),
+  async (req, res) => {
+    try {
+      if (!req.body || !(req.body instanceof Buffer)) {
+        return res.status(400).json({ error: "no-audio" });
+      }
+
+      const dgKey = process.env.DEEPGRAM_API_KEY!;
+      if (!dgKey) return res.status(500).json({ error: "no-deepgram-key" });
+
+      // Send raw audio to Deepgram's listen endpoint
+      const dgResp = await fetch(
+        "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Token ${dgKey}`,
+            "Content-Type": "audio/webm",
+            Accept: "application/json"
+          },
+          body: req.body
+        }
+      );
+
+      if (!dgResp.ok) {
+        const errTxt = await dgResp.text();
+        console.error("Deepgram error:", errTxt);
+        return res.status(502).json({ error: "stt-failed" });
+      }
+
+      const data = await dgResp.json();
+      // Typical Deepgram path:
+      const text =
+        data?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+
+      return res.json({ text });
+    } catch (e) {
+      console.error("stt error:", e);
+      return res.status(500).json({ error: "stt-exception" });
+    }
+  }
+);
 
 /** --- Start server (Render provides PORT) --- */
 const port = parseInt(process.env.PORT || "10000", 10);
