@@ -3,18 +3,14 @@
     "target": "ES2020",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "rootDir": "./server",
     "outDir": "./dist",
     "noEmit": false,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "jsx": "preserve",
-    "baseUrl": ".",
-    "types": ["node"],
-    "paths": {
-      "@/*": ["./client/src/*"],
-      "@shared/*": ["./shared/*"]
-    }
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
   },
   "include": ["server/**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
