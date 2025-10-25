@@ -198,12 +198,18 @@ app.post("/chat", async (req, res) => {
 });
 
 /** --- TTS: text -> MP3 (ElevenLabs) --- */
+/** --- TTS: text -> MP3 (ElevenLabs – Courtney / ValeriaX voice) --- */
 app.post("/tts", async (req, res) => {
   try {
     const text: string = (req.body?.text ?? "").toString().slice(0, 1000);
     if (!text) return res.status(400).send("No text");
 
-    const voiceId = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
+    // Prefer Courtney’s clone first, then fallback
+    const voiceId =
+      process.env.VALERIAX_VOICE_ID ||
+      process.env.ELEVENLABS_VOICE_ID ||
+      "21m00Tcm4TlvDq8ikWAM"; // default ElevenLabs voice if none found
+
     const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: "POST",
       headers: {
@@ -213,10 +219,25 @@ app.post("/tts", async (req, res) => {
       },
       body: JSON.stringify({
         text,
-        model_id: "eleven_monolingual_v1",
-        voice_settings: { stability: 0.45, similarity_boost: 0.8 }
+        model_id: "eleven_turbo_v2",
+        voice_settings: { stability: 0.45, similarity_boost: 0.85 }
       })
     });
+
+    if (!r.ok) {
+      const errText = await r.text();
+      console.error("TTS error:", errText);
+      return res.status(500).send("tts-failed");
+    }
+
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.send(buf);
+  } catch (e) {
+    console.error("tts error:", e);
+    res.status(500).send("tts-failed");
+  }
+});
 
     if (!r.ok) {
       const errText = await r.text();
