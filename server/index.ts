@@ -204,7 +204,7 @@ app.post("/tts", async (req, res) => {
     const text: string = (req.body?.text ?? "").toString().slice(0, 1000);
     if (!text) return res.status(400).send("No text");
 
-    // Always use Courtney’s cloned voice
+    // Always use Courtney’s cloned ElevenLabs voice
     const voiceId = "vwqYBDQDcrXEr3Hz2BT8";
 
     console.log("[TTS] Using ElevenLabs voice:", voiceId);
@@ -236,23 +236,55 @@ app.post("/tts", async (req, res) => {
     console.error("tts error:", e);
     res.status(500).send("tts-failed");
   }
-});
+}); // <-- end of /tts (one closing });
 
+/** --- STT: audio webm/wav -> transcript (Deepgram) --- */
+app.post(
+  "/stt",
+  // accept raw audio from the browser (both webm and wav fallback)
+  express.raw({ type: ["audio/webm", "audio/wav", "audio/*"], limit: "25mb" }),
+  async (req, res) => {
+    try {
+      if (!req.body || !(req.body instanceof Buffer)) {
+        return res.status(400).json({ error: "no-audio" });
+      }
 
-    if (!r.ok) {
-      const errText = await r.text().catch(() => "");
-      console.error("TTS error:", errText);
-      return res.status(500).send("tts-failed");
+      const dgKey = process.env.DEEPGRAM_API_KEY!;
+      if (!dgKey) return res.status(500).json({ error: "no-deepgram-key" });
+
+      // Forward the actual content type the browser sent (webm OR wav)
+      const contentType =
+        (req.headers["content-type"] as string) || "audio/webm";
+
+      const url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true";
+      const dgResp = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Token ${dgKey}`,
+          "Content-Type": contentType,
+          Accept: "application/json"
+        },
+        body: req.body
+      });
+
+      if (!dgResp.ok) {
+        const errTxt = await dgResp.text();
+        console.error("Deepgram error:", errTxt);
+        return res.status(502).json({ error: "stt-failed" });
+      }
+
+      const data = await dgResp.json();
+      const text =
+        data?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+
+      return res.json({ text });
+    } catch (e) {
+      console.error("stt error:", e);
+      return res.status(500).json({ error: "stt-exception" });
     }
-
-    const buf = Buffer.from(await r.arrayBuffer());
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.send(buf);
-  } catch (e) {
-    console.error("tts error:", e);
-    res.status(500).send("tts-failed");
   }
-});
+);
+
 
 /** --- STT: audio webm/wav -> transcript (Deepgram) --- */
 app.post(
