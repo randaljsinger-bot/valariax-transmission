@@ -204,11 +204,8 @@ app.post("/tts", async (req, res) => {
     const text: string = (req.body?.text ?? "").toString().slice(0, 1000);
     if (!text) return res.status(400).send("No text");
 
-    // Prefer ENV, else hard-coded, else default ElevenLabs voice
-    const voiceId =
-      process.env.VALERIAX_VOICE_ID ||
-      "YOUR_COURTNEY_VOICE_ID_HERE" || // replace with actual ID or leave env to handle it
-      "21m00Tcm4TlvDq8ikWAM";
+    // Always use Courtney’s cloned voice
+    const voiceId = "vwqYBDQDcrXEr3Hz2BT8";
 
     console.log("[TTS] Using ElevenLabs voice:", voiceId);
 
@@ -221,10 +218,26 @@ app.post("/tts", async (req, res) => {
       },
       body: JSON.stringify({
         text,
-        model_id: "eleven_monolingual_v1", // widely available, reliable
+        model_id: "eleven_monolingual_v1",
         voice_settings: { stability: 0.45, similarity_boost: 0.85 }
       })
     });
+
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "");
+      console.error("TTS error:", errText);
+      return res.status(500).send("tts-failed");
+    }
+
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.send(buf);
+  } catch (e) {
+    console.error("tts error:", e);
+    res.status(500).send("tts-failed");
+  }
+});
+
 
     if (!r.ok) {
       const errText = await r.text().catch(() => "");
