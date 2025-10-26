@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
+import type { WebSocket } from "ws"; // <-- add this
 
 /** --- Express + HTTP server --- */
 const app = express();
@@ -22,7 +23,7 @@ app.get("/healthz", (_req, res) => {
 
 /** --- WebSocket setup (presence/telemetry) --- */
 const wss = new WebSocketServer({ noServer: true });
-wss.on("connection", (ws) => {
+wss.on("connection", (ws: WebSocket) => { // <-- typed
   console.log("✅ WS client connected");
   ws.send(JSON.stringify({ type: "connected" }));
 });
@@ -32,7 +33,7 @@ server.on("upgrade", (req, socket, head) => {
     socket.destroy();
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => {
+  wss.handleUpgrade(req, socket, head, (ws: WebSocket) => { // <-- typed
     wss.emit("connection", ws, req);
   });
 });
