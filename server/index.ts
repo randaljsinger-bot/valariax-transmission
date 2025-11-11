@@ -3,6 +3,110 @@ import cors from "cors";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import type { WebSocket } from "ws"; // <-- add this
+// === Transmission limits: helpers + DB ===
+import pg from "pg";
+
+// Postgres pool
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+// Ensure the usage table exists (runs once on boot)
+async function ensureUsageTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS voice_usage (
+      user_id TEXT NOT NULL,
+      period  TEXT NOT NULL,
+      mode    TEXT NOT NULL,
+      bursts_used INTEGER NOT NULL DEFAULT 0,
+      seconds_used INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, period, mode)
+    );
+  `);
+}
+ensureUsageTable().catch(console.error);
+
+// Current billing period (YYYY-MM)
+function currentPeriod(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}`;
+}
+
+// Read usage
+async function getUsage(userId: string, mode: string, period: string) {
+  const { rows } = await pool.query(
+    `SELECT bursts_used, seconds_used
+     FROM voice_usage
+     WHERE user_id=$1 AND mode=$2 AND period=$3`,
+    [userId, mode, period]
+  );
+  return rows[0] || { bursts_used: 0, seconds_used: 0 };
+}
+
+// Increment usage by 1 burst
+async function incrementUsage(userId: string, mode: string, period: string, seconds: number) {
+  await pool.query(
+    `INSERT INTO voice_usage (user_id, period, mode, bursts_used, seconds_used)
+     VALUES ($1,$2,$3,1,$4)
+     ON CONFLICT (user_id, period, mode)
+     DO UPDATE SET
+       bursts_used = voice_usage.bursts_used + 1,
+       seconds_used = voice_usage.seconds_used + EXCLUDED.seconds_used`,
+    [userId, period, mode, seconds]
+  );
+}
+
+// ~30s limiter (approx 75 words at 150 wpm)
+function limitToThirtySeconds(text: string) {
+  const maxWords = Number(process.env.VOICE_TRANSMISSION_BURST_SECONDS || 30) >= 30 ? 75 : 70;
+  const words = text.trim().split(/\s+/);
+  return words.length <= maxWords ? text : words.slice(0, maxWords).join(" ") + "…";
+}
+
+// Small helper: LLM call (reuse your existing /chat settings, just tighter)
+async function generateLLMReplyForTX(userText: string) {
+  const sys =
+    "You are ValariaX — natural, concise, humanlike. Keep replies short (1–3 short paragraphs). No boilerplate.";
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${process.env.OPENAI_API_KEY!}`
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0.8,
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: userText.slice(0, 4000) }
+      ]
+    })
+  });
+  if (!r.ok) throw new Error(`OpenAI failed: ${r.status}`);
+  const data = await r.json();
+  return (data?.choices?.[0]?.message?.content?.toString() || "…").trim();
+}
+
+// Small helper: ElevenLabs TTS (same voice you already use)
+async function synthTX(text: string) {
+  const voiceId = "vwqYBDQDcrXEr3Hz2BT8"; // Courtney / ValariaX
+  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+    method: "POST",
+    headers: {
+      "xi-api-key": process.env.ELEVENLABS_API_KEY!,
+      "Content-Type": "application/json",
+      "Accept": "audio/mpeg"
+    },
+    body: JSON.stringify({
+      text,
+      model_id: "eleven_monolingual_v1",
+      voice_settings: { stability: 0.45, similarity_boost: 0.85 }
+    })
+  });
+  if (!r.ok) throw new Error(`TTS failed: ${await r.text().catch(()=> "")}`);
+  const buf = Buffer.from(await r.arrayBuffer());
+  return buf;
+}
 
 /** --- Express + HTTP server --- */
 const app = express();
@@ -332,6 +436,58 @@ app.post(
     }
   }
 );
+/** --- Transmission one-shot endpoint: text -> (LLM -> limited) -> TTS, with caps --- */
+app.post("/tx-voice-reply", async (req, res) => {
+  try {
+    // Identify the user (for now: header or body; fallback to 'dev-user' for testing)
+    const userId =
+      (req.headers["x-user-id"] as string) ||
+      (req.body?.userId as string) ||
+      "dev-user";
+
+    const monthlyLimit = Number(process.env.VOICE_TRANSMISSION_MONTHLY_BURSTS || 10);
+    const burstSeconds = Number(process.env.VOICE_TRANSMISSION_BURST_SECONDS || 30);
+    const period = currentPeriod();
+    const mode = "transmission";
+
+    const userText =
+      (req.body?.message ||
+        req.body?.text ||
+        req.body?.input ||
+        req.body?.prompt ||
+        req.body?.query ||
+        "") as string;
+
+    if (!userText || !userText.trim()) {
+      return res.status(400).json({ error: "no-text" });
+    }
+
+    // Check usage
+    const usage = await getUsage(userId, mode, period);
+    if (usage.bursts_used >= monthlyLimit) {
+      return res.json({
+        text:
+          "You’ve enjoyed all 10 voice replies this month 😘 Want more of me? Upgrade or add extra bursts.",
+      });
+    }
+
+    // LLM reply -> enforce ~30s
+    const llm = await generateLLMReplyForTX(userText);
+    const limited = limitToThirtySeconds(llm);
+
+    // TTS
+    const audio = await synthTX(limited);
+
+    // Count usage (one burst)
+    await incrementUsage(userId, mode, period, burstSeconds);
+
+    res.setHeader("Content-Type", "audio/mpeg");
+    return res.send(audio);
+  } catch (e) {
+    console.error("tx-voice-reply error:", e);
+    return res.status(500).json({ error: "tx-voice-reply-failed" });
+  }
+});
 
 /** --- Start server (Render provides PORT) --- */
 const port = parseInt(process.env.PORT || "10000", 10);
