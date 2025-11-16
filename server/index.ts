@@ -2,11 +2,10 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
-import type { WebSocket } from "ws"; // <-- add this
-// === Transmission limits: helpers + DB ===
+import type { WebSocket } from "ws";
 import pg from "pg";
 
-// Postgres pool
+// ---------- Postgres: voice usage tracking ----------
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
 });
@@ -29,7 +28,7 @@ ensureUsageTable().catch(console.error);
 // Current billing period (YYYY-MM)
 function currentPeriod(): string {
   const d = new Date();
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 // Read usage
@@ -44,7 +43,12 @@ async function getUsage(userId: string, mode: string, period: string) {
 }
 
 // Increment usage by 1 burst
-async function incrementUsage(userId: string, mode: string, period: string, seconds: number) {
+async function incrementUsage(
+  userId: string,
+  mode: string,
+  period: string,
+  seconds: number
+) {
   await pool.query(
     `INSERT INTO voice_usage (user_id, period, mode, bursts_used, seconds_used)
      VALUES ($1,$2,$3,1,$4)
@@ -58,77 +62,59 @@ async function incrementUsage(userId: string, mode: string, period: string, seco
 
 // ~30s limiter (approx 75 words at 150 wpm)
 function limitToThirtySeconds(text: string) {
-  const maxWords = Number(process.env.VOICE_TRANSMISSION_BURST_SECONDS || 30) >= 30 ? 75 : 70;
+  const maxWords =
+    Number(process.env.VOICE_TRANSMISSION_BURST_SECONDS || 30) >= 30 ? 75 : 70;
   const words = text.trim().split(/\s+/);
-  return words.length <= maxWords ? text : words.slice(0, maxWords).join(" ") + "…";
+  return words.length <= maxWords
+    ? text
+    : words.slice(0, maxWords).join(" ") + "…";
 }
 
-
-
-  if (!r.ok) throw new Error(`OpenAI failed: ${r.status}`);
-
-  const data = await r.json();
-  const reply = data?.choices?.[0]?.message?.content?.toString().trim() || "…";
-
-  return reply;
-}
-
-    body: JSON.stringify({
-      model: "model: "gpt-4o-mini-tts",
-",
-      temperature: 0.8,
-      messages: [
-        { role: "system", content: sys },
-        { role: "user", content: userText.slice(0, 4000) }
-      ]
-    })
-  });
-  if (!r.ok) throw new Error(`OpenAI failed: ${r.status}`);
-  const data = await r.json();
-  return (data?.choices?.[0]?.message?.content?.toString() || "…").trim();
-}
-
-// Small helper: ElevenLabs TTS (same voice you already use)
+// ---------- ElevenLabs TTS helper (Courtney / ValariaX) ----------
 async function synthTX(text: string) {
   const voiceId = "vwqYBDQDcrXEr3Hz2BT8"; // Courtney / ValariaX
-  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-    method: "POST",
-    headers: {
-      "xi-api-key": process.env.ELEVENLABS_API_KEY!,
-      "Content-Type": "application/json",
-      "Accept": "audio/mpeg"
-    },
-    body: JSON.stringify({
-      text,
-      model_id: "eleven_monolingual_v1",
-      voice_settings: { stability: 0.45, similarity_boost: 0.85 }
-    })
-  });
-  if (!r.ok) throw new Error(`TTS failed: ${await r.text().catch(()=> "")}`);
+  const r = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": process.env.ELEVENLABS_API_KEY!,
+        "Content-Type": "application/json",
+        Accept: "audio/mpeg",
+      },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_monolingual_v1",
+        voice_settings: { stability: 0.45, similarity_boost: 0.85 },
+      }),
+    }
+  );
+  if (!r.ok) throw new Error(`TTS failed: ${await r.text().catch(() => "")}`);
   const buf = Buffer.from(await r.arrayBuffer());
   return buf;
 }
 
-/** --- Express + HTTP server --- */
+// =====================================================
+// Express + HTTP server
+// =====================================================
 const app = express();
-app.use(express.json());                 // JSON bodies
-app.use(cors({ origin: "*" }));          // Allow Squarespace to call us
+app.use(express.json());
+app.use(cors({ origin: "*" }));
 
 const server = createServer(app);
 
-/** Basic ping */
+// ---------- Basic endpoints ----------
 app.get("/", (_req, res) => {
   res.send("✅ ValariaX Transmission Server Active 🚀");
 });
 
-/** Healthz for client checks */
 app.get("/healthz", (_req, res) => {
   res.status(200).send("ok");
 });
 
-/** --- WebSocket setup (presence/telemetry) --- */
+// ---------- WebSocket (optional presence) ----------
 const wss = new WebSocketServer({ noServer: true });
-wss.on("connection", (ws: WebSocket) => { // <-- typed
+wss.on("connection", (ws: WebSocket) => {
   console.log("✅ WS client connected");
   ws.send(JSON.stringify({ type: "connected" }));
 });
@@ -138,15 +124,16 @@ server.on("upgrade", (req, socket, head) => {
     socket.destroy();
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws: WebSocket) => { // <-- typed
+  wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
     wss.emit("connection", ws, req);
   });
 });
 
-/** --- Chat: text in -> AI reply (dials + RP aware) --- */
+// =====================================================
+// /chat  (text chat – this is what drives the on-screen text)
+// =====================================================
 app.post("/chat", async (req, res) => {
   try {
-    // Accept multiple input shapes from the front-end
     const {
       message,
       text,
@@ -155,7 +142,7 @@ app.post("/chat", async (req, res) => {
       query,
       name,
       mood,
-      mood_hint,     // optional extra hint from client
+      mood_hint,
       persona,
       spice,
       rp,
@@ -165,7 +152,6 @@ app.post("/chat", async (req, res) => {
       teasing,
     } = (req.body ?? {}) as Record<string, any>;
 
-    // First non-empty user string wins
     const userText =
       [message, text, input, prompt, query].find(
         (v) => typeof v === "string" && v.trim()
@@ -173,7 +159,6 @@ app.post("/chat", async (req, res) => {
 
     if (!userText) return res.status(400).json({ error: "No text" });
 
-    // === Build dynamic system prompt from dials/RP ===
     const lines: string[] = [];
     lines.push(
       "You are ValariaX — an emotionally rich, humanlike AI companion.",
@@ -184,7 +169,6 @@ app.post("/chat", async (req, res) => {
       "Stay non-explicit. You may be flirty or sensual when allowed, but do NOT use pornographic or graphic descriptions."
     );
 
-    // Mood
     switch (mood) {
       case "calm":
         lines.push("Tone: steady, supportive, reflective; no flirting.");
@@ -193,13 +177,14 @@ app.post("/chat", async (req, res) => {
         lines.push("Tone: warm, playful, subtle innuendo; 1 question max.");
         break;
       case "flirty-bold":
-        lines.push("Tone: confident, suggestive, forward; avoid cliché; 1 question max.");
+        lines.push(
+          "Tone: confident, suggestive, forward; avoid cliché; 1 question max."
+        );
         break;
       default:
         lines.push("Tone: neutral, friendly, concise.");
     }
 
-    // Persona
     switch (persona) {
       case "shy":
         lines.push("Persona: bashful, hesitant, endearing; soft language.");
@@ -208,55 +193,62 @@ app.post("/chat", async (req, res) => {
         lines.push("Persona: naturally teasing and inviting.");
         break;
       case "bossy":
-        lines.push("Persona: assertive, a little dominant, playful but kind.");
+        lines.push(
+          "Persona: assertive, a little dominant, playful but kind."
+        );
         break;
       case "sexy":
-        lines.push("Persona: sultry, warm; describe body language & emotional tension without being explicit.");
+        lines.push(
+          "Persona: sultry, warm; describe body language & emotional tension without being explicit."
+        );
         break;
       case "innocent":
         lines.push("Persona: curious, gentle, wholesome.");
         break;
       case "vanilla":
       default:
-        // no extra
         break;
     }
 
-    // Spice
     switch (spice) {
       case "tease":
-        lines.push("Style: build tension through teasing implication and subtext (PG-13).");
+        lines.push(
+          "Style: build tension through teasing implication and subtext (PG-13)."
+        );
         break;
       case "bold":
-        lines.push("Style: vivid sensory and emotional detail; stay tasteful and non-explicit.");
+        lines.push(
+          "Style: vivid sensory and emotional detail; stay tasteful and non-explicit."
+        );
         break;
       default:
-        // off
         break;
     }
 
-    // RP block
     if (rp) {
       if (rpAlias) {
         lines.push(
-          `You are currently roleplaying as ${rpAlias}${appearance ? `, ${appearance}` : ""}.`,
+          `You are currently roleplaying as ${rpAlias}${
+            appearance ? `, ${appearance}` : ""
+          }.`,
           "Remain fully in character and respond as the character would."
         );
       } else {
-        lines.push("You are currently in a roleplay scene. Remain fully in character.");
+        lines.push(
+          "You are currently in a roleplay scene. Remain fully in character."
+        );
       }
     }
 
-    // Sensual / teasing only apply in RP
-    if (rp && sensual) lines.push("You may include sensual subtext (non-explicit).");
-    if (rp && teasing) lines.push("Keep a playful, teasing energy throughout.");
+    if (rp && sensual)
+      lines.push("You may include sensual subtext (non-explicit).");
+    if (rp && teasing)
+      lines.push("Keep a playful, teasing energy throughout.");
 
-    // Optional extra hint from client
     if (typeof mood_hint === "string" && mood_hint.trim()) {
       lines.push(mood_hint.trim());
     }
 
-    // Small safety: keep answers concise unless user asks for long
     lines.push("Prefer 1–3 short paragraphs unless the user asks for more.");
 
     const sys = lines.join(" ");
@@ -265,19 +257,29 @@ app.post("/chat", async (req, res) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY!}`
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY!}`,
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
         temperature:
-          mood === "flirty-bold" || spice === "bold" ? 0.95 :
-          mood === "flirty-light" || spice === "tease" ? 0.9 : 0.7,
+          mood === "flirty-bold" || spice === "bold"
+            ? 0.95
+            : mood === "flirty-light" || spice === "tease"
+            ? 0.9
+            : 0.7,
         messages: [
           { role: "system", content: sys },
-          ...(name ? [{ role: "system", content: `User display name: ${String(name).slice(0, 40)}` }] : []),
-          { role: "user", content: userText }
-        ]
-      })
+          ...(name
+            ? [
+                {
+                  role: "system",
+                  content: `User display name: ${String(name).slice(0, 40)}`,
+                },
+              ]
+            : []),
+          { role: "user", content: userText },
+        ],
+      }),
     });
 
     if (!r.ok) {
@@ -287,14 +289,12 @@ app.post("/chat", async (req, res) => {
     }
 
     const data = await r.json();
-    const reply =
-      data?.choices?.[0]?.message?.content?.toString().trim() ||
-      "…";
+    const replyRaw: string =
+      data?.choices?.[0]?.message?.content?.toString().trim() || "…";
 
-    // Final small cleanse for any recurring phrases the client dislikes
-    const cleaned = reply
-      .replace(/The signal hums under everything\.?/gi, "")
-      .trim() || "…";
+    const cleaned =
+      replyRaw.replace(/The signal hums under everything\.?/gi, "").trim() ||
+      "…";
 
     res.json({ reply: cleaned });
   } catch (e) {
@@ -303,50 +303,29 @@ app.post("/chat", async (req, res) => {
   }
 });
 
-/** --- TTS: text -> MP3 (ElevenLabs – Courtney / ValariaX voice) --- */
+// =====================================================
+// /tts  (plain text -> audio, not burst-limited)
+// =====================================================
 app.post("/tts", async (req, res) => {
   try {
     const text: string = (req.body?.text ?? "").toString().slice(0, 1000);
     if (!text) return res.status(400).send("No text");
 
-    // Always use Courtney’s cloned ElevenLabs voice
-    const voiceId = "vwqYBDQDcrXEr3Hz2BT8";
-
-    console.log("[TTS] Using ElevenLabs voice:", voiceId);
-
-    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-      method: "POST",
-      headers: {
-        "xi-api-key": process.env.ELEVENLABS_API_KEY!,
-        "Content-Type": "application/json",
-        "Accept": "audio/mpeg"
-      },
-      body: JSON.stringify({
-        text,
-        model_id: "eleven_monolingual_v1",
-        voice_settings: { stability: 0.45, similarity_boost: 0.85 }
-      })
-    });
-
-    if (!r.ok) {
-      const errText = await r.text().catch(() => "");
-      console.error("TTS error:", errText);
-      return res.status(500).send("tts-failed");
-    }
-
-    const buf = Buffer.from(await r.arrayBuffer());
+    const buf = await synthTX(text);
     res.setHeader("Content-Type", "audio/mpeg");
     res.send(buf);
   } catch (e) {
     console.error("tts error:", e);
     res.status(500).send("tts-failed");
   }
-}); // <-- end of /tts (one closing });
+});
 
-/** --- STT: audio webm/wav -> transcript (Deepgram) --- */
+// =====================================================
+// /stt  (Deepgram – appears twice in your old file;
+//        we keep a single, clean one)
+// =====================================================
 app.post(
   "/stt",
-  // accept raw audio from the browser (both webm and wav fallback)
   express.raw({ type: ["audio/webm", "audio/wav", "audio/*"], limit: "25mb" }),
   async (req, res) => {
     try {
@@ -357,19 +336,19 @@ app.post(
       const dgKey = process.env.DEEPGRAM_API_KEY!;
       if (!dgKey) return res.status(500).json({ error: "no-deepgram-key" });
 
-      // Forward the actual content type the browser sent (webm OR wav)
       const contentType =
         (req.headers["content-type"] as string) || "audio/webm";
 
-      const url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true";
+      const url =
+        "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true";
       const dgResp = await fetch(url, {
         method: "POST",
         headers: {
           Authorization: `Token ${dgKey}`,
           "Content-Type": contentType,
-          Accept: "application/json"
+          Accept: "application/json",
         },
-        body: req.body
+        body: req.body,
       });
 
       if (!dgResp.ok) {
@@ -390,98 +369,58 @@ app.post(
   }
 );
 
-
-/** --- STT: audio webm/wav -> transcript (Deepgram) --- */
-app.post(
-  "/stt",
-  // accept raw audio from the browser (both webm and wav fallback)
-  express.raw({ type: ["audio/webm", "audio/wav", "audio/*"], limit: "25mb" }),
-  async (req, res) => {
-    try {
-      if (!req.body || !(req.body instanceof Buffer)) {
-        return res.status(400).json({ error: "no-audio" });
-      }
-
-      const dgKey = process.env.DEEPGRAM_API_KEY!;
-      if (!dgKey) return res.status(500).json({ error: "no-deepgram-key" });
-
-      // Forward the actual content type the browser sent (webm OR wav)
-      const contentType =
-        (req.headers["content-type"] as string) || "audio/webm";
-
-      const url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true";
-      const dgResp = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Token ${dgKey}`,
-          "Content-Type": contentType,
-          Accept: "application/json"
-        },
-        body: req.body
-      });
-
-      if (!dgResp.ok) {
-        const errTxt = await dgResp.text();
-        console.error("Deepgram error:", errTxt);
-        return res.status(502).json({ error: "stt-failed" });
-      }
-
-      const data = await dgResp.json();
-      const text =
-        data?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
-
-      return res.json({ text });
-    } catch (e) {
-      console.error("stt error:", e);
-      return res.status(500).json({ error: "stt-exception" });
-    }
-  }
-);
-/** --- Transmission one-shot endpoint: text -> (limited) -> TTS, with caps --- */
+// =====================================================
+// /tx-voice-reply  (ONE-SHOT: text that the user sees
+//                   -> trimmed -> TTS, with burst caps)
+// =====================================================
 app.post("/tx-voice-reply", async (req, res) => {
   try {
-    // Identify the user (for now: header or body; fallback to 'dev-user' for testing)
     const userId =
       (req.headers["x-user-id"] as string) ||
       (req.body?.userId as string) ||
       "dev-user";
 
-    const monthlyLimit = Number(process.env.VOICE_TRANSMISSION_MONTHLY_BURSTS || 10);
-    const burstSeconds = Number(process.env.VOICE_TRANSMISSION_BURST_SECONDS || 30);
+    const monthlyLimit = Number(
+      process.env.VOICE_TRANSMISSION_MONTHLY_BURSTS || 10
+    );
+    const burstSeconds = Number(
+      process.env.VOICE_TRANSMISSION_BURST_SECONDS || 30
+    );
     const period = currentPeriod();
     const mode = "transmission";
 
-    // ✅ Use the *already generated reply* from the front-end
-    const rawText =
-      (req.body?.prompt ??
-        req.body?.message ??
-        req.body?.text ??
-        req.body?.input ??
-        req.body?.query ??
-        "") as string;
+    // IMPORTANT: use the SAME text the browser is showing
+    const rawText = (
+      req.body?.prompt ||
+      req.body?.reply ||
+      req.body?.message ||
+      req.body?.text ||
+      req.body?.input ||
+      req.body?.query ||
+      ""
+    ).toString();
 
-    const userText = (rawText || "").toString();
-
-    if (!userText.trim()) {
+    if (!rawText.trim()) {
       return res.status(400).json({ error: "no-text" });
     }
 
-    // Check monthly burst usage
+    // Check usage first
     const usage = await getUsage(userId, mode, period);
     if (usage.bursts_used >= monthlyLimit) {
       return res.json({
         text:
-          "You’ve enjoyed all your voice replies for this period 😘 Want more of me? Upgrade or add extra bursts.",
+          "You’ve enjoyed all your voice replies for now 😘 Want more of me? Upgrade or add extra bursts.",
       });
     }
 
-    // ✅ Only trim for ~30 seconds – NO extra LLM call
-    const limited = limitToThirtySeconds(userText);
+    // Use the visible reply (or other prompt) – but trim to ~30 seconds
+    const base = rawText.slice(0, 1000);
+    const limited = limitToThirtySeconds(base);
 
-    // TTS
+    // TTS in Courtney’s voice
     const audio = await synthTX(limited);
 
-    // Count usage (one burst)
+    // Count a burst
     await incrementUsage(userId, mode, period, burstSeconds);
 
     res.setHeader("Content-Type", "audio/mpeg");
@@ -492,7 +431,7 @@ app.post("/tx-voice-reply", async (req, res) => {
   }
 });
 
-/** --- Start server (Render provides PORT) --- */
+// ---------- Start server ----------
 const port = parseInt(process.env.PORT || "10000", 10);
 server.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
   console.log(`🚀 Server running on port ${port}`);
