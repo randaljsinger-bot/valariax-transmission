@@ -288,22 +288,19 @@ app.post("/chat", async (req, res) => {
       return res.status(502).json({ error: "upstream-failed" });
     }
 
-    const data = await r.json();
-    const replyRaw: string =
-      data?.choices?.[0]?.message?.content?.toString().trim() || "…";
-
+  // 1) Parse OpenAI response
 const data = await r.json();
 const replyRaw: string =
-  data?.choices?.[0]?.message?.content?.toString().trim() || "…";
+  data?.choices?.[0]?.message?.content?.toString().trim() || "...";
 
-// 1) Clean up any banned catchphrases
+// 2) Clean up banned/catch phrases
 const cleaned =
-  replyRaw.replace(/The signal hums under everything\.?/gi, "").trim() || "…";
+  replyRaw.replace(/The signal hums under everything\.?/gi, "").trim() || "...";
 
-// 2) Clamp to ~30 seconds of speech so text matches the voice burst
+// 3) Limit to ~30 seconds worth of text so voice and text match
 const limited = limitToThirtySeconds(cleaned);
 
-// 3) Send the *limited* text back to the browser
+// 4) Send limited text back to browser
 res.json({ reply: limited });
 
   } catch (e) {
