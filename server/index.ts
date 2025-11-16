@@ -292,11 +292,15 @@ app.post("/chat", async (req, res) => {
     const replyRaw: string =
       data?.choices?.[0]?.message?.content?.toString().trim() || "…";
 
-    const cleaned =
-      replyRaw.replace(/The signal hums under everything\.?/gi, "").trim() ||
-      "…";
+const cleaned = reply
+  .replace(/The signal hums under everything\.?/gi, "")
+  .trim() || "…";
 
-    res.json({ reply: cleaned });
+// Make Transmission text match the ~30s voice limiter
+const limited = limitToThirtySeconds(cleaned);
+
+res.json({ reply: limited });
+
   } catch (e) {
     console.error("chat error:", e);
     res.status(500).json({ error: "chat-failed" });
