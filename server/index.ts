@@ -292,13 +292,18 @@ app.post("/chat", async (req, res) => {
     const replyRaw: string =
       data?.choices?.[0]?.message?.content?.toString().trim() || "…";
 
-const cleaned = reply
-  .replace(/The signal hums under everything\.?/gi, "")
-  .trim() || "…";
+const data = await r.json();
+const replyRaw: string =
+  data?.choices?.[0]?.message?.content?.toString().trim() || "…";
 
-// Make Transmission text match the ~30s voice limiter
+// 1) Clean up any banned catchphrases
+const cleaned =
+  replyRaw.replace(/The signal hums under everything\.?/gi, "").trim() || "…";
+
+// 2) Clamp to ~30 seconds of speech so text matches the voice burst
 const limited = limitToThirtySeconds(cleaned);
 
+// 3) Send the *limited* text back to the browser
 res.json({ reply: limited });
 
   } catch (e) {
