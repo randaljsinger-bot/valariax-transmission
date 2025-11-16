@@ -460,7 +460,7 @@ app.post(
     }
   }
 );
-/** --- Transmission one-shot endpoint: text -> (LLM -> limited) -> TTS, with caps --- */
+/** --- Transmission one-shot endpoint: text -> (limited) -> TTS, with caps --- */
 app.post("/tx-voice-reply", async (req, res) => {
   try {
     // Identify the user (for now: header or body; fallback to 'dev-user' for testing)
@@ -474,30 +474,32 @@ app.post("/tx-voice-reply", async (req, res) => {
     const period = currentPeriod();
     const mode = "transmission";
 
-    const userText =
-      (req.body?.message ||
-        req.body?.text ||
-        req.body?.input ||
-        req.body?.prompt ||
-        req.body?.query ||
+    // ✅ Use the *already generated reply* from the front-end
+    const rawText =
+      (req.body?.prompt ??
+        req.body?.message ??
+        req.body?.text ??
+        req.body?.input ??
+        req.body?.query ??
         "") as string;
 
-    if (!userText || !userText.trim()) {
+    const userText = (rawText || "").toString();
+
+    if (!userText.trim()) {
       return res.status(400).json({ error: "no-text" });
     }
 
-    // Check usage
+    // Check monthly burst usage
     const usage = await getUsage(userId, mode, period);
     if (usage.bursts_used >= monthlyLimit) {
       return res.json({
         text:
-          "You’ve enjoyed all 10 voice replies this month 😘 Want more of me? Upgrade or add extra bursts.",
+          "You’ve enjoyed all your voice replies for this period 😘 Want more of me? Upgrade or add extra bursts.",
       });
     }
 
-    // LLM reply -> enforce ~30s
-    const llm = await generateLLMReplyForTX(userText);
-    const limited = limitToThirtySeconds(llm);
+    // ✅ Only trim for ~30 seconds – NO extra LLM call
+    const limited = limitToThirtySeconds(userText);
 
     // TTS
     const audio = await synthTX(limited);
