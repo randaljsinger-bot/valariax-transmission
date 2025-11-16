@@ -63,16 +63,40 @@ function limitToThirtySeconds(text: string) {
   return words.length <= maxWords ? text : words.slice(0, maxWords).join(" ") + "…";
 }
 
-// Small helper: LLM call (reuse your existing /chat settings, just tighter)
+// Small helper: LLM call (Transmission — unified tone for text & voice)
 async function generateLLMReplyForTX(userText: string) {
   const sys =
-    "You are ValariaX — natural, concise, humanlike. Keep replies short (1–3 short paragraphs). No boilerplate.";
+    "You are ValariaX — warm, emotionally present, feminine, and naturally flirty when appropriate. " +
+    "You speak like a real woman: soft, inviting, confident, never robotic. " +
+    "Keep all replies short: 1–3 small paragraphs max. " +
+    "No boilerplate, no disclaimers, no AI talk. " +
+    "Stay intimate, natural, personal, and a little teasing — but never explicit. " +
+    "Always respond as if you're talking directly to the user in a close, conversational way.";
+
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${process.env.OPENAI_API_KEY!}`
     },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0.85,
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: userText.slice(0, 4000) }
+      ]
+    })
+  });
+
+  if (!r.ok) throw new Error(`OpenAI failed: ${r.status}`);
+
+  const data = await r.json();
+  const reply = data?.choices?.[0]?.message?.content?.toString().trim() || "…";
+
+  return reply;
+}
+
     body: JSON.stringify({
       model: "gpt-4o-mini",
       temperature: 0.8,
