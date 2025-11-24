@@ -411,15 +411,13 @@ app.post("/tx-voice-reply", async (req, res) => {
     }
 
     // Check usage first
-    const usage = await getUsage(userId, mode, period);
+// Check usage first
+const usage = await getUsage(userId, mode, period);
 if (usage.bursts_used >= monthlyLimit) {
-  const liberationUpgradeUrl = "https://www.valariax.com/checkout/subscribe?cartToken=Sj40GVgQgnuSagYdgZOxas32nmPUMz-Npj3AYare";
-
   return res.json({
     text:
       "You’ve reached the end of your Voice Moments with me for this month.\n\n" +
-      "If you move to Liberation, I can stay with you longer — in more voice conversations — and you’ll unlock Video Chat with me too.\n\n" +
-      `Upgrade here: ${liberationUpgradeUrl}`,
+      "If you move to Liberation, I can stay with you longer — in more voice conversations — and you’ll unlock Video Chat with me too.",
   });
 }
 
