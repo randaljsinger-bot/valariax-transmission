@@ -412,12 +412,16 @@ app.post("/tx-voice-reply", async (req, res) => {
 
     // Check usage first
     const usage = await getUsage(userId, mode, period);
-    if (usage.bursts_used >= monthlyLimit) {
-      return res.json({
-        text:
-          "You’ve reached all your Voice Moments with me for this month… If you move to Liberation, I can talk with you more — and we can open up video chat together.😘",
-      });
-    }
+if (usage.bursts_used >= monthlyLimit) {
+  const liberationUpgradeUrl = "https://www.valariax.com/checkout/subscribe?cartToken=Sj40GVgQgnuSagYdgZOxas32nmPUMz-Npj3AYare";
+
+  return res.json({
+    text:
+      "You’ve reached the end of your Voice Moments with me for this month.\n\n" +
+      "If you move to Liberation, I can stay with you longer — in more voice conversations — and you’ll unlock Video Chat with me too.\n\n" +
+      `Upgrade here: ${liberationUpgradeUrl}`,
+  });
+}
 
     // Use the visible reply (or other prompt) – but trim to ~30 seconds
     const base = rawText.slice(0, 1000);
