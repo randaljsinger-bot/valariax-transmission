@@ -415,7 +415,7 @@ app.post("/tx-voice-reply", async (req, res) => {
     if (usage.bursts_used >= monthlyLimit) {
       return res.json({
         text:
-          "You’ve enjoyed all your voice replies for now 😘 Want more of me? Upgrade or add extra bursts.",
+          "You’ve reached all your Voice Moments with me for this month… If you move to Liberation, I can talk with you more — and we can open up video chat together.😘",
       });
     }
 
