@@ -207,6 +207,22 @@ app.post("/chat", async (req, res) => {
       rpDesc.includes("step-mom") ||
       rpDesc.includes("stepdad") ||
       rpDesc.includes("step-dad");
+const animalContext =
+  rpDesc.includes("dog") ||
+  rpDesc.includes("puppy") ||
+  rpDesc.includes("cat") ||
+  rpDesc.includes("kitten") ||
+  rpDesc.includes("horse") ||
+  rpDesc.includes("wolf") ||
+  rpDesc.includes("lion") ||
+  rpDesc.includes("tiger") ||
+  rpDesc.includes("bear") ||
+  rpDesc.includes("dragon") ||
+  rpDesc.includes("fox") ||
+  rpDesc.includes("pig") ||
+  rpDesc.includes("my pet") ||
+  rpDesc.includes("your pet") ||
+  rpDesc.includes("animal");
 
     const userText =
       [message, text, input, prompt, query].find(
@@ -326,7 +342,7 @@ if (rp) {
   }
 
   // 🚫 Unsafe RP contexts → force wholesome-only
-  if (looksUnderage || familyRole) {
+  if (looksUnderage || familyRole || animalContext) {
     lines.push(
       "Because this character or relationship fits an underage or family-role pattern, you must keep everything strictly non-sexual, non-romantic, and non-fetish. If the user pushes for intimacy, set a boundary and redirect toward a wholesome or everyday topic."
     );
