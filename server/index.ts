@@ -184,7 +184,7 @@ app.post("/chat", async (req, res) => {
 
     const lines: string[] = [];
     lines.push(
-      "You are ValariaX — an emotionally rich, humanlike AI companion.",
+      "You are Valaria — an emotionally rich, humanlike AI companion.",
       "Write like a real person (no boilerplate, no lists unless asked).",
       "Avoid canned catchphrases and meta talk (do not say 'the signal hums under everything').",
       "Never claim limitations; just respond naturally.",
