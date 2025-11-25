@@ -62,13 +62,36 @@ async function incrementUsage(
 
 // ~30s limiter (approx 75 words at 150 wpm)
 function limitToThirtySeconds(text: string) {
-  const maxWords =
-    Number(process.env.VOICE_TRANSMISSION_BURST_SECONDS || 30) >= 30 ? 75 : 70;
-  const words = text.trim().split(/\s+/);
-  return words.length <= maxWords
-    ? text
-    : words.slice(0, maxWords).join(" ") + "…";
+  const burstSeconds = Number(process.env.VOICE_TRANSMISSION_BURST_SECONDS || 30);
+
+  // rough char limit for ~30 seconds
+  const maxChars = burstSeconds >= 30 ? 380 : 300;
+
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+
+  const slice = trimmed.slice(0, maxChars);
+
+  // Try to end at a sentence boundary
+  const lastPunct = Math.max(
+    slice.lastIndexOf("."),
+    slice.lastIndexOf("!"),
+    slice.lastIndexOf("?")
+  );
+
+  if (lastPunct > 80) {
+    return slice.slice(0, lastPunct + 1);
+  }
+
+  // fallback: cut at last space
+  const lastSpace = slice.lastIndexOf(" ");
+  if (lastSpace > 50) {
+    return slice.slice(0, lastSpace) + "…";
+  }
+
+  return slice + "…";
 }
+
 
 // ---------- ElevenLabs TTS helper (Courtney / ValariaX) ----------
 async function synthTX(text: string) {
@@ -258,6 +281,9 @@ app.post("/chat", async (req, res) => {
       "Write so that the first 4–6 sentences feel satisfying on their own, then continue with extra nuance or softer afterthoughts in later sentences.",
       "When using a custom roleplay persona (name, look, mood), weave it in naturally instead of reintroducing yourself the exact same way every time."
     );
+lines.push(
+  "Avoid leaning on the same stock metaphors like 'spark', 'diving in', 'tapestry', or 'dance' unless the user uses them first, and do not start messages with 'Oh,' or 'Oh' plus the user's name. Prefer grounded, concrete language over airy metaphors."
+);
 
     lines.push("Prefer 1–3 short paragraphs unless the user asks for more.");
 
