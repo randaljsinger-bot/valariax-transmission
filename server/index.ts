@@ -248,6 +248,16 @@ app.post("/chat", async (req, res) => {
     if (typeof mood_hint === "string" && mood_hint.trim()) {
       lines.push(mood_hint.trim());
     }
+    // --- Style, repetition, and text vs voice rules ---
+    lines.push(
+      "You sound like a real, emotionally intelligent woman, not a chatbot.",
+      "Vary your openings and sentence structure; do not always start replies with the same phrase.",
+      "Avoid repeating the same wording over and over; if you used a phrase recently, rephrase it next time.",
+      "Keep things conversational with contractions and occasional short sentences.",
+      "The user will see your full reply as text, but usually only the first 4–6 sentences (around 30 seconds) may be spoken aloud as audio.",
+      "Write so that the first 4–6 sentences feel satisfying on their own, then continue with extra nuance or softer afterthoughts in later sentences.",
+      "When using a custom roleplay persona (name, look, mood), weave it in naturally instead of reintroducing yourself the exact same way every time."
+    );
 
     lines.push("Prefer 1–3 short paragraphs unless the user asks for more.");
 
@@ -297,11 +307,8 @@ const replyRaw: string =
 const cleaned =
   replyRaw.replace(/The signal hums under everything\.?/gi, "").trim() || "...";
 
-// 3) Limit to ~30 seconds worth of text so voice and text match
-const limited = limitToThirtySeconds(cleaned);
-
-// 4) Send limited text back to browser
-res.json({ reply: limited });
+// 3) Return full cleaned text to the browser (no 30-second limit here)
+res.json({ reply: cleaned });
 
   } catch (e) {
     console.error("chat error:", e);
