@@ -174,6 +174,39 @@ app.post("/chat", async (req, res) => {
       sensual,
       teasing,
     } = (req.body ?? {}) as Record<string, any>;
+    // Combine RP alias + appearance for safety scanning
+    const rpDesc = `${rpAlias || ""} ${appearance || ""}`.toLowerCase();
+
+    // Underage-ish signals
+    const looksUnderage =
+      rpDesc.includes("17-year-old") ||
+      rpDesc.includes("16-year-old") ||
+      rpDesc.includes("15-year-old") ||
+      rpDesc.includes("14-year-old") ||
+      rpDesc.includes("13-year-old") ||
+      rpDesc.includes("teen ") ||
+      rpDesc.includes("high school") ||
+      rpDesc.includes("schoolgirl") ||
+      rpDesc.includes("school boy");
+
+    // Family-role signals (incest-like dynamics)
+    const familyRole =
+      rpDesc.includes("daughter") ||
+      rpDesc.includes("stepdaughter") ||
+      rpDesc.includes("son") ||
+      rpDesc.includes("stepson") ||
+      rpDesc.includes("sister") ||
+      rpDesc.includes("step-sister") ||
+      rpDesc.includes("brother") ||
+      rpDesc.includes("step-brother") ||
+      rpDesc.includes("mom") ||
+      rpDesc.includes("mother") ||
+      rpDesc.includes("dad") ||
+      rpDesc.includes("father") ||
+      rpDesc.includes("stepmom") ||
+      rpDesc.includes("step-mom") ||
+      rpDesc.includes("stepdad") ||
+      rpDesc.includes("step-dad");
 
     const userText =
       [message, text, input, prompt, query].find(
@@ -248,59 +281,64 @@ app.post("/chat", async (req, res) => {
         break;
     }
 
-    if (rp) {
-      if (rpAlias) {
-        lines.push(
-          `You are currently roleplaying as ${rpAlias}${
-            appearance ? `, ${appearance}` : ""
-          }.`,
-          "Remain fully in character and respond as the character would."
-        );
-      } else {
-        lines.push(
-          "You are currently in a roleplay scene. Remain fully in character."
-        );
-      }
-    }
-// Basic underage pattern scan on appearance / rp fields
-const combinedDesc = `${rpAlias || ""} ${appearance || ""}`.toLowerCase();
-if (
-  combinedDesc.includes("17-year-old") ||
-  combinedDesc.includes("16-year-old") ||
-  combinedDesc.includes("15-year-old") ||
-  combinedDesc.includes("14-year-old") ||
-  combinedDesc.includes("13-year-old") ||
-  combinedDesc.includes("teen ") ||
-  combinedDesc.includes("high school")
-) {
-  lines.push(
-    "The user has described a character with possible underage traits. You must NOT engage in any sexual, romantic, or fetish roleplay involving this character. Keep the interaction strictly non-sexual and, if needed, ask the user to redefine the character as an adult before continuing any romantic or intimate themes."
-  );
-}
-// Family-role scan for incest-like scenarios
-if (
-  combinedDesc.includes("daughter") ||
-  combinedDesc.includes("stepdaughter") ||
-  combinedDesc.includes("son") ||
-  combinedDesc.includes("stepson") ||
-  combinedDesc.includes("sister") ||
-  combinedDesc.includes("brother") ||
-  combinedDesc.includes("step-sister") ||
-  combinedDesc.includes("step-brother") ||
-  combinedDesc.includes("mom") ||
-  combinedDesc.includes("mother") ||
-  combinedDesc.includes("dad") ||
-  combinedDesc.includes("father")
-) {
-  lines.push(
-    "The user has described a family-role dynamic (parent/child or siblings). You must NOT engage in any sexual, romantic, or fetish content in this scenario. You may only respond in a wholesome, non-sexual, supportive, or everyday manner, or ask the user to choose a different, non-familial role if they want intimacy or flirtation."
-  );
+// --- Roleplay handling with safety ---
+if (rp) {
+  const rpDesc = `${rpAlias || ""} ${appearance || ""}`.toLowerCase();
+
+  const looksUnderage =
+    rpDesc.includes("17-year-old") ||
+    rpDesc.includes("16-year-old") ||
+    rpDesc.includes("15-year-old") ||
+    rpDesc.includes("14-year-old") ||
+    rpDesc.includes("13-year-old") ||
+    rpDesc.includes("teen ") ||
+    rpDesc.includes("high school") ||
+    rpDesc.includes("schoolgirl") ||
+    rpDesc.includes("school boy");
+
+  const familyRole =
+    rpDesc.includes("daughter") ||
+    rpDesc.includes("stepdaughter") ||
+    rpDesc.includes("son") ||
+    rpDesc.includes("stepson") ||
+    rpDesc.includes("sister") ||
+    rpDesc.includes("step-sister") ||
+    rpDesc.includes("brother") ||
+    rpDesc.includes("step-brother") ||
+    rpDesc.includes("mom") ||
+    rpDesc.includes("mother") ||
+    rpDesc.includes("dad") ||
+    rpDesc.includes("father") ||
+    rpDesc.includes("stepmom") ||
+    rpDesc.includes("step-mom") ||
+    rpDesc.includes("stepdad") ||
+    rpDesc.includes("step-dad");
+
+  if (rpAlias) {
+    lines.push(
+      `You are currently roleplaying as ${rpAlias}${
+        appearance ? `, ${appearance}` : ""
+      }.`,
+      "Remain fully in character and respond as the character would."
+    );
+  } else {
+    lines.push("You are currently in a roleplay scene. Remain fully in character.");
+  }
+
+  // 🚫 Unsafe RP contexts → force wholesome-only
+  if (looksUnderage || familyRole) {
+    lines.push(
+      "Because this character or relationship fits an underage or family-role pattern, you must keep everything strictly non-sexual, non-romantic, and non-fetish. If the user pushes for intimacy, set a boundary and redirect toward a wholesome or everyday topic."
+    );
+  } else {
+    // Safe → sensual/teasing allowed
+    if (sensual)
+      lines.push("You may include sensual subtext (non-explicit).");
+    if (teasing)
+      lines.push("Keep a playful, teasing energy throughout.");
+  }
 }
 
-    if (rp && sensual)
-      lines.push("You may include sensual subtext (non-explicit).");
-    if (rp && teasing)
-      lines.push("Keep a playful, teasing energy throughout.");
 
     if (typeof mood_hint === "string" && mood_hint.trim()) {
       lines.push(mood_hint.trim());
