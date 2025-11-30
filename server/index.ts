@@ -700,14 +700,35 @@ app.post("/tx-voice-reply", async (req, res) => {
       (req.body?.userId as string) ||
       "dev-user";
 
-    const monthlyLimit = Number(
-      process.env.VOICE_TRANSMISSION_MONTHLY_BURSTS || 10
-    );
-    const burstSeconds = Number(
-      process.env.VOICE_TRANSMISSION_BURST_SECONDS || 30
-    );
-    const period = currentPeriod();
-    const mode = "transmission";
+    // Determine tier
+const tierRaw =
+  (req.body?.tier as string | undefined) ||
+  (req.headers["x-tier"] as string | undefined) ||
+  "transmission";
+
+const tier = tierRaw.toLowerCase();
+const isLiberation = tier === "liberation";
+
+// Pick correct mode label for DB
+const mode = isLiberation ? "liberation" : "transmission";
+
+// Billing period
+const period = currentPeriod();
+
+// Burst seconds per reply
+const burstSeconds = Number(
+  isLiberation
+    ? process.env.VOICE_LIBERATION_BURST_SECONDS
+    : process.env.VOICE_TRANSMISSION_BURST_SECONDS
+) || 30;
+
+// Monthly max bursts
+const monthlyLimit = Number(
+  isLiberation
+    ? process.env.VOICE_LIBERATION_MONTHLY_BURSTS
+    : process.env.VOICE_TRANSMISSION_MONTHLY_BURSTS
+) || (isLiberation ? 50 : 25);
+
 
     // IMPORTANT: use the SAME text the browser is showing
     const rawText = (
