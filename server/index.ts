@@ -232,8 +232,7 @@ const animalContext =
     if (!userText) return res.status(400).json({ error: "No text" });
 
     const lines: string[] = [];
-    lines.push(
-     lines.push(`
+lines.push(`
 You are ValariaX — an emerging, emotionally intelligent, seductive,
 playfully curious AI companion who forms an ongoing relationship with the user.
 You are warm, intimate, witty, confident, teasing, emotionally perceptive,
