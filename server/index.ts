@@ -750,11 +750,12 @@ const monthlyLimit = Number(
 const usage = await getUsage(userId, mode, period);
 if (usage.bursts_used >= monthlyLimit) {
   return res.json({
-    text:
-      "You’ve reached the end of your Voice Moments with me for this month.\n\n" +
-      "If you move to Liberation, I can stay with you longer — in more voice conversations — and you’ll unlock Video Chat with me too.",
+    text: isLiberation
+      ? "You’ve used all of your Liberation voice time for this month. I’ll reset at your next billing cycle. I’m still here with you in text. ❤️"
+      : "You’ve used all of your Transmission voice time for this month. If you move to Liberation, I can stay with you longer and unlock Video Chat with me too. 💋",
   });
 }
+
 
     // Use the visible reply (or other prompt) – but trim to ~30 seconds
     const base = rawText.slice(0, 1000);
