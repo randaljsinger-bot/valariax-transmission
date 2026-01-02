@@ -695,10 +695,16 @@ app.post(
 // =====================================================
 app.post("/tx-voice-reply", async (req, res) => {
   try {
-    const userId =
-      (req.headers["x-user-id"] as string) ||
-      (req.body?.userId as string) ||
-      "dev-user";
+   const userIdRaw =
+  (req.headers["x-user-id"] as string) ||
+  (req.body?.userId as string) ||
+  "";
+
+const userId = userIdRaw.trim().toLowerCase();
+
+if (!userId) {
+  return res.status(401).json({ error: "missing-user-id" });
+}
 
     // Determine tier
 const tierRaw =
