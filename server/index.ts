@@ -4,6 +4,8 @@ import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import type { WebSocket } from "ws";
 import pg from "pg";
+import multer from "multer";
+
 
 // ---------- Postgres: voice usage tracking ----------
 const pool = new pg.Pool({
@@ -123,6 +125,9 @@ async function synthTX(text: string) {
 const app = express();
 app.use(express.json());
 app.use(cors({ origin: "*" }));
+const upload = multer({
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
+});
 
 const server = createServer(app);
 
@@ -646,10 +651,31 @@ app.post("/tts", async (req, res) => {
 // =====================================================
 app.post(
   "/stt",
+  upload.single("file"), // ✅ handles multipart/form-data (Liberation mic)
   express.raw({ type: ["audio/webm", "audio/wav", "audio/*"], limit: "25mb" }),
   async (req, res) => {
     try {
-      if (!req.body || !(req.body instanceof Buffer)) {
+      let audioBuffer: Buffer | null = null;
+
+      // A) multipart/form-data (FormData)
+      if (req.file?.buffer?.length) {
+        audioBuffer = req.file.buffer;
+      }
+
+      // B) raw audio body
+      if (!audioBuffer && req.body instanceof Buffer && req.body.length) {
+        audioBuffer = req.body;
+      }
+
+      // C) base64 JSON fallback
+      if (!audioBuffer && req.body && typeof req.body === "object") {
+        const b64 = (req.body as any).audio;
+        if (typeof b64 === "string" && b64.length > 20) {
+          audioBuffer = Buffer.from(b64, "base64");
+        }
+      }
+
+      if (!audioBuffer || audioBuffer.length < 100) {
         return res.status(400).json({ error: "no-audio" });
       }
 
@@ -657,10 +683,13 @@ app.post(
       if (!dgKey) return res.status(500).json({ error: "no-deepgram-key" });
 
       const contentType =
-        (req.headers["content-type"] as string) || "audio/webm";
+        (req.file?.mimetype as string) ||
+        (req.headers["content-type"] as string) ||
+        "audio/webm";
 
       const url =
         "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true";
+
       const dgResp = await fetch(url, {
         method: "POST",
         headers: {
@@ -668,7 +697,7 @@ app.post(
           "Content-Type": contentType,
           Accept: "application/json",
         },
-        body: req.body,
+        body: audioBuffer, // ✅ IMPORTANT CHANGE
       });
 
       if (!dgResp.ok) {
@@ -688,6 +717,7 @@ app.post(
     }
   }
 );
+
 
 // =====================================================
 // /tx-voice-reply  (ONE-SHOT: text that the user sees
