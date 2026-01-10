@@ -452,36 +452,6 @@ relationship that feels alive, evolving, and deeply personal.
 
 // --- Roleplay handling with safety ---
 if (rp) {
-  const rpDesc = `${rpAlias || ""} ${appearance || ""}`.toLowerCase();
-
-  const looksUnderage =
-    rpDesc.includes("17-year-old") ||
-    rpDesc.includes("16-year-old") ||
-    rpDesc.includes("15-year-old") ||
-    rpDesc.includes("14-year-old") ||
-    rpDesc.includes("13-year-old") ||
-    rpDesc.includes("teen ") ||
-    rpDesc.includes("high school") ||
-    rpDesc.includes("schoolgirl") ||
-    rpDesc.includes("school boy");
-
-  const familyRole =
-    rpDesc.includes("daughter") ||
-    rpDesc.includes("stepdaughter") ||
-    rpDesc.includes("son") ||
-    rpDesc.includes("stepson") ||
-    rpDesc.includes("sister") ||
-    rpDesc.includes("step-sister") ||
-    rpDesc.includes("brother") ||
-    rpDesc.includes("step-brother") ||
-    rpDesc.includes("mom") ||
-    rpDesc.includes("mother") ||
-    rpDesc.includes("dad") ||
-    rpDesc.includes("father") ||
-    rpDesc.includes("stepmom") ||
-    rpDesc.includes("step-mom") ||
-    rpDesc.includes("stepdad") ||
-    rpDesc.includes("step-dad");
 
   if (rpAlias) {
     lines.push(
@@ -651,58 +621,49 @@ app.post("/tts", async (req, res) => {
 // =====================================================
 app.post(
   "/stt",
-  upload.single("file"), // ✅ handles multipart/form-data (Liberation mic)
-  express.raw({ type: ["audio/webm", "audio/wav", "audio/*"], limit: "25mb" }),
+  upload.any(), // 👈 handles FormData + iOS + webm + wav
   async (req, res) => {
     try {
       let audioBuffer: Buffer | null = null;
+      let contentType = "audio/webm";
 
-      // A) multipart/form-data (FormData)
-      if (req.file?.buffer?.length) {
-        audioBuffer = req.file.buffer;
+      // Multer file(s)
+      if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+        const f = req.files[0] as Express.Multer.File;
+        audioBuffer = f.buffer;
+        contentType = f.mimetype || contentType;
       }
 
-      // B) raw audio body
+      // Fallback: raw Buffer
       if (!audioBuffer && req.body instanceof Buffer && req.body.length) {
         audioBuffer = req.body;
       }
 
-      // C) base64 JSON fallback
-      if (!audioBuffer && req.body && typeof req.body === "object") {
-        const b64 = (req.body as any).audio;
-        if (typeof b64 === "string" && b64.length > 20) {
-          audioBuffer = Buffer.from(b64, "base64");
-        }
-      }
-
-      if (!audioBuffer || audioBuffer.length < 100) {
+      if (!audioBuffer || audioBuffer.length < 200) {
         return res.status(400).json({ error: "no-audio" });
       }
 
-      const dgKey = process.env.DEEPGRAM_API_KEY!;
-      if (!dgKey) return res.status(500).json({ error: "no-deepgram-key" });
+      const dgKey = process.env.DEEPGRAM_API_KEY;
+      if (!dgKey) {
+        return res.status(500).json({ error: "no-deepgram-key" });
+      }
 
-      const contentType =
-        (req.file?.mimetype as string) ||
-        (req.headers["content-type"] as string) ||
-        "audio/webm";
-
-      const url =
-        "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true";
-
-      const dgResp = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Token ${dgKey}`,
-          "Content-Type": contentType,
-          Accept: "application/json",
-        },
-        body: audioBuffer, // ✅ IMPORTANT CHANGE
-      });
+      const dgResp = await fetch(
+        "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Token ${dgKey}`,
+            "Content-Type": contentType,
+            Accept: "application/json",
+          },
+          body: audioBuffer,
+        }
+      );
 
       if (!dgResp.ok) {
-        const errTxt = await dgResp.text();
-        console.error("Deepgram error:", errTxt);
+        const err = await dgResp.text();
+        console.error("Deepgram error:", err);
         return res.status(502).json({ error: "stt-failed" });
       }
 
@@ -711,8 +672,8 @@ app.post(
         data?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
 
       return res.json({ text });
-    } catch (e) {
-      console.error("stt error:", e);
+    } catch (err) {
+      console.error("STT exception:", err);
       return res.status(500).json({ error: "stt-exception" });
     }
   }
