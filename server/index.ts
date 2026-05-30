@@ -545,7 +545,21 @@ lines.push("Prefer 1–3 short paragraphs unless the user asks for more.");
 
 
     const sys = lines.join(" ");
+const historyRaw = Array.isArray(req.body?.history) ? req.body.history : [];
 
+const history = historyRaw
+  .filter(
+    (m: any) =>
+      m &&
+      (m.role === "user" || m.role === "assistant") &&
+      typeof m.content === "string" &&
+      m.content.trim()
+  )
+  .slice(-20)
+  .map((m: any) => ({
+    role: m.role,
+    content: m.content.slice(0, 2000),
+  }));
     const r = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -560,18 +574,19 @@ lines.push("Prefer 1–3 short paragraphs unless the user asks for more.");
             : mood === "flirty-light" || spice === "tease"
             ? 0.9
             : 0.7,
-        messages: [
-          { role: "system", content: sys },
-          ...(name
-            ? [
-                {
-                  role: "system",
-                  content: `User display name: ${String(name).slice(0, 40)}`,
-                },
-              ]
-            : []),
-          { role: "user", content: userText },
-        ],
+       messages: [
+  { role: "system", content: sys },
+  ...(name
+    ? [
+        {
+          role: "system",
+          content: `User display name: ${String(name).slice(0, 40)}`,
+        },
+      ]
+    : []),
+  ...history,
+  { role: "user", content: userText },
+],
       }),
     });
 
